@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(sudo apt-get update:*)",
+      "Bash(node --version:*)",
+      "Bash(npm --version:*)",
+      "Bash(unzip:*)",
+      "Bash(python3 -m zipfile:*)",
+      "Bash(npm install:*)",
+      "Bash(npm run dev:*)",
+      "Bash(curl:*)",
+      "Bash(while read id)",
+      "Bash(do curl -X DELETE \"http://localhost:3000/api/jobs/$id\")",
+      "Bash(echo:*)",
+      "Bash(done)",
+      "Bash(for id in \"699b4f6e7ca2f670d3f9708a\" \"699b4f737ca2f670d3f9708c\" \"699b4f777ca2f670d3f9708e\" \"699b4f7a7ca2f670d3f97090\" \"699b4f7d7ca2f670d3f97092\" \"699b4f7f7ca2f670d3f97094\" \"699b4f7f7ca2f670d3f97096\" \"699b4f827ca2f670d3f97098\")",
+      "Bash(do)",
+      "Bash(npx payload:*)",
+      "Bash(pkill:*)",
+      "Bash(tail:*)"
+    ]
+  }
+}
