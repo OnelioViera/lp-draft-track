@@ -31,6 +31,18 @@ export async function POST(request: Request) {
       )
     }
 
+    // When deployed (e.g. Vercel), we cannot write to the user's PC
+    if (folderPath.match(/^[A-Z]:\\/i) && process.platform !== 'win32') {
+      return NextResponse.json(
+        {
+          error: 'File upload only works when running the app locally',
+          details: 'Run the app on your Windows PC (e.g. npm run dev). The hosted site cannot save files to your computer.',
+          code: 'LOCAL_ONLY',
+        },
+        { status: 503 }
+      )
+    }
+
     const serverPath = toServerPath(folderPath)
 
     // Optional: path relative to folderPath (e.g. "CAD/plan.dwg") for folder uploads

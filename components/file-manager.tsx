@@ -56,6 +56,7 @@ export function FileManager({ jobFolderPath, onUploadComplete }: FileManagerProp
   const [uploadMessage, setUploadMessage] = useState<'success' | 'error' | null>(null)
   const [folderUploadProgress, setFolderUploadProgress] = useState<{ current: number; total: number } | null>(null)
   const [showUploadFolderConfirm, setShowUploadFolderConfirm] = useState(false)
+  const [localOnlyMessage, setLocalOnlyMessage] = useState<string | null>(null)
 
   useEffect(() => {
     loadFiles()
@@ -63,6 +64,7 @@ export function FileManager({ jobFolderPath, onUploadComplete }: FileManagerProp
 
   const loadFiles = async () => {
     setLoading(true)
+    setLocalOnlyMessage(null)
     try {
       const response = await fetch('/api/list-files', {
         method: 'POST',
@@ -73,6 +75,10 @@ export function FileManager({ jobFolderPath, onUploadComplete }: FileManagerProp
       if (data.success) {
         setFiles(data.files || [])
         setFolders(data.folders || [])
+      } else if (response.status === 503 && data.code === 'LOCAL_ONLY') {
+        setFiles([])
+        setFolders([])
+        setLocalOnlyMessage(data.details || data.error || 'File and folder operations are only available when running the app on your computer.')
       }
     } catch (error) {
       console.error('Error loading files:', error)
@@ -104,7 +110,10 @@ export function FileManager({ jobFolderPath, onUploadComplete }: FileManagerProp
         setTimeout(() => setUploadMessage(null), 3000)
       } else {
         const data = await response.json().catch(() => ({}))
-        setActionError(data.error || data.details || 'Upload failed')
+        const message = (response.status === 503 && data.code === 'LOCAL_ONLY')
+          ? (data.details || data.error || 'Upload is only available when running the app on your computer.')
+          : (data.error || data.details || 'Upload failed')
+        setActionError(message)
         setUploadMessage('error')
       }
     } catch (error) {
@@ -151,7 +160,9 @@ export function FileManager({ jobFolderPath, onUploadComplete }: FileManagerProp
           uploaded++
         } else {
           const data = await response.json().catch(() => ({}))
-          lastError = data.error || data.details || 'Upload failed'
+          lastError = (response.status === 503 && data.code === 'LOCAL_ONLY')
+            ? (data.details || data.error || 'Upload is only available when running the app on your computer.')
+            : (data.error || data.details || 'Upload failed')
         }
       } catch {
         lastError = 'Failed to upload file'
@@ -411,6 +422,13 @@ export function FileManager({ jobFolderPath, onUploadComplete }: FileManagerProp
         }}
       />
 
+      {localOnlyMessage && (
+        <div className="rounded-lg border border-amber/50 bg-amber/10 p-4 text-sm text-foreground">
+          <p className="font-medium text-amber mb-1">Available only when running the app on your computer</p>
+          <p className="text-muted-foreground">{localOnlyMessage}</p>
+        </div>
+      )}
+
       {uploadMessage === 'success' && (
         <p className="text-sm text-green-500">
           Upload complete. Files are in {currentPath}
@@ -434,7 +452,9 @@ export function FileManager({ jobFolderPath, onUploadComplete }: FileManagerProp
           <div className="p-4 text-center text-muted-foreground">Loading...</div>
         ) : folders.length === 0 && files.length === 0 ? (
           <div className="p-4 text-center text-muted-foreground">
-            No files or folders yet. Create a folder or upload a file in this location.
+            {localOnlyMessage
+              ? localOnlyMessage
+              : 'No files or folders yet. Create a folder or upload a file in this location.'}
           </div>
         ) : (
           <div className="divide-y divide-border">

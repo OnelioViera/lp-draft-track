@@ -22,6 +22,19 @@ export async function POST(request: Request) {
       )
     }
 
+    // When deployed, we cannot read from the user's PC
+    if (folderPath.match(/^[A-Z]:\\/i) && process.platform !== 'win32') {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'File list only available when running the app locally',
+          details: 'Run the app on your Windows PC to view and manage job files.',
+          code: 'LOCAL_ONLY',
+        },
+        { status: 503 }
+      )
+    }
+
     const serverPath = toServerPath(folderPath)
 
     if (!fs.existsSync(serverPath)) {
