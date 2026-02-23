@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import Image from 'next/image'
-import { Search, Plus, Filter } from 'lucide-react'
+import { Search, Plus, Filter, X } from 'lucide-react'
 import { Job, JobStats } from '@/lib/types'
 import { StatsBar } from '@/components/stats-bar'
 import { JobTable } from '@/components/job-table'
@@ -245,8 +245,21 @@ export default function Home() {
   }
 
   const uniquePMs = Array.from(
-    new Set(jobs.map((job) => job.projectManager))
+    new Set(
+      jobs
+        .map((job) => job.projectManager)
+        .filter((pm): pm is string => Boolean(pm && pm.trim()))
+    )
   ).sort()
+
+  const hasActiveFilters =
+    statusFilter !== 'all' || pmFilter !== 'all' || searchQuery.trim() !== ''
+
+  const clearFilters = () => {
+    setStatusFilter('all')
+    setPmFilter('all')
+    setSearchQuery('')
+  }
 
   return (
     <div className="min-h-screen blueprint-bg">
@@ -274,6 +287,12 @@ export default function Home() {
         {/* Stats Bar */}
         <StatsBar stats={stats} />
 
+        {hasActiveFilters && (
+          <p className="text-sm text-muted-foreground mb-2">
+            Showing {filteredJobs.length} of {jobs.length} jobs
+          </p>
+        )}
+
         {/* Controls */}
         <div className="flex flex-col md:flex-row gap-4 mb-6">
           <div className="flex-1 relative">
@@ -287,7 +306,7 @@ export default function Home() {
           </div>
           <Select value={statusFilter} onValueChange={setStatusFilter}>
             <SelectTrigger className="w-full md:w-[200px]">
-              <Filter className="h-4 w-4 mr-2" />
+              <Filter className="h-4 w-4 mr-2 shrink-0" />
               <SelectValue placeholder="Filter by Status" />
             </SelectTrigger>
             <SelectContent>
@@ -300,6 +319,7 @@ export default function Home() {
           </Select>
           <Select value={pmFilter} onValueChange={setPmFilter}>
             <SelectTrigger className="w-full md:w-[200px]">
+              <Filter className="h-4 w-4 mr-2 shrink-0" />
               <SelectValue placeholder="Filter by PM" />
             </SelectTrigger>
             <SelectContent>
@@ -311,6 +331,16 @@ export default function Home() {
               ))}
             </SelectContent>
           </Select>
+          {hasActiveFilters && (
+            <Button
+              variant="outline"
+              className="w-full md:w-auto shrink-0"
+              onClick={clearFilters}
+            >
+              <X className="h-4 w-4 mr-2" />
+              Back to dashboard
+            </Button>
+          )}
           <Button className="w-full md:w-auto" onClick={handleNewJob}>
             <Plus className="h-4 w-4 mr-2" />
             New Job
