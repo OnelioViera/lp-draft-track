@@ -2,6 +2,15 @@ import { NextResponse } from 'next/server'
 import fs from 'fs'
 import path from 'path'
 
+function toServerPath(windowsPath: string): string {
+  if (process.platform === 'win32') return windowsPath
+  if (windowsPath.match(/^[A-Z]:\\/i)) {
+    const driveLetter = windowsPath[0].toLowerCase()
+    return windowsPath.replace(/^[A-Z]:\\/i, `/mnt/${driveLetter}/`).replace(/\\/g, '/')
+  }
+  return windowsPath.replace(/\\/g, '/')
+}
+
 export async function POST(request: Request) {
   try {
     const { filePath } = await request.json()
@@ -13,25 +22,17 @@ export async function POST(request: Request) {
       )
     }
 
-    // Convert Windows path to WSL path
-    let wslPath = filePath
-    if (filePath.match(/^[A-Z]:\\/i)) {
-      const driveLetter = filePath[0].toLowerCase()
-      wslPath = filePath.replace(/^[A-Z]:\\/i, `/mnt/${driveLetter}/`)
-      wslPath = wslPath.replace(/\\/g, '/')
-    }
+    const serverPath = toServerPath(filePath)
 
-    // Check if file exists
-    if (!fs.existsSync(wslPath)) {
+    if (!fs.existsSync(serverPath)) {
       return NextResponse.json(
         { error: 'File not found' },
         { status: 404 }
       )
     }
 
-    // Read file
-    const fileBuffer = fs.readFileSync(wslPath)
-    const fileName = path.basename(wslPath)
+    const fileBuffer = fs.readFileSync(serverPath)
+    const fileName = path.basename(serverPath)
     const extension = path.extname(fileName).toLowerCase()
 
     // Determine content type
@@ -49,10 +50,11 @@ export async function POST(request: Request) {
         'Content-Length': fileBuffer.length.toString(),
       },
     })
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : String(error)
     console.error('Error downloading file:', error)
     return NextResponse.json(
-      { error: 'Failed to download file', details: error.message },
+      { error: 'Failed to download file', details: msg },
       { status: 500 }
     )
   }

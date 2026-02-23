@@ -12,17 +12,28 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Job } from '@/lib/types'
+import { Job, JobType } from '@/lib/types'
 
 interface JobFormDialogProps {
   isOpen: boolean
   onClose: () => void
   onSave: (job: Partial<Job>) => void
   job?: Job | null
+  initialJobType?: JobType
+  projectManagers?: { id: string; name: string }[]
 }
 
-export function JobFormDialog({ isOpen, onClose, onSave, job }: JobFormDialogProps) {
+export function JobFormDialog({ isOpen, onClose, onSave, job, initialJobType = 'lindsay-precast', projectManagers = [] }: JobFormDialogProps) {
+  const basePaths: Record<JobType, string> = {
+    'lindsay-precast':
+      process.env.NEXT_PUBLIC_JOB_FOLDER_BASE_PATH_LINDSAY_PRECAST ||
+      'C:\\Users\\ojvie\\OneDrive - Lindsay Precast\\WORK FROM HOME',
+    'lindsay-renewables':
+      process.env.NEXT_PUBLIC_JOB_FOLDER_BASE_PATH_LINDSAY_RENEWABLES ||
+      'C:\\Users\\ojvie\\OneDrive - Lindsay Renewables\\WORK FROM HOME',
+  }
   const [formData, setFormData] = useState({
+    jobType: 'lindsay-precast' as JobType,
     jobNumber: '',
     jobName: '',
     customerName: '',
@@ -31,7 +42,9 @@ export function JobFormDialog({ isOpen, onClose, onSave, job }: JobFormDialogPro
     status: 'active' as Job['status'],
     dateStarted: new Date().toISOString().split('T')[0],
     description: '',
-    fileLocationPath: 'C:\\Users\\ojvie\\OneDrive - Lindsay Precast\\WORK FROM HOME',
+    fileLocationPath: basePaths['lindsay-precast'],
+    useExistingFolder: false,
+    existingFolderPath: '',
   })
 
   const [errors, setErrors] = useState<Record<string, string>>({})
@@ -40,6 +53,7 @@ export function JobFormDialog({ isOpen, onClose, onSave, job }: JobFormDialogPro
   useEffect(() => {
     if (job) {
       setFormData({
+        jobType: job.jobType || 'lindsay-precast',
         jobNumber: job.jobNumber || '',
         jobName: job.jobName || '',
         customerName: job.customerName || '',
@@ -48,11 +62,14 @@ export function JobFormDialog({ isOpen, onClose, onSave, job }: JobFormDialogPro
         status: job.status || 'active',
         dateStarted: job.dateStarted ? new Date(job.dateStarted).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
         description: job.description || '',
-        fileLocationPath: job.fileLocationPath || '',
+        fileLocationPath: job.fileLocationPath || basePaths[job.jobType || 'lindsay-precast'],
+        useExistingFolder: false,
+        existingFolderPath: '',
       })
     } else {
       // Reset form for new job
       setFormData({
+        jobType: initialJobType,
         jobNumber: '',
         jobName: '',
         customerName: '',
@@ -61,16 +78,43 @@ export function JobFormDialog({ isOpen, onClose, onSave, job }: JobFormDialogPro
         status: 'active',
         dateStarted: new Date().toISOString().split('T')[0],
         description: '',
-        fileLocationPath: 'C:\\Users\\ojvie\\OneDrive - Lindsay Precast\\WORK FROM HOME',
+        fileLocationPath: basePaths[initialJobType],
+        useExistingFolder: false,
+        existingFolderPath: '',
       })
     }
-    // Clear errors when job changes
     setErrors({})
-  }, [job, isOpen])
+  }, [job, initialJobType, isOpen])
 
-  const handleChange = (field: string, value: string) => {
-    setFormData((prev) => ({ ...prev, [field]: value }))
-    // Clear error when user starts typing
+  const handleChange = (field: string, value: string | boolean) => {
+    setFormData((prev) => {
+      const next = { ...prev, [field]: value }
+      if (field === 'jobType') {
+        next.fileLocationPath = basePaths[value as JobType]
+      }
+      if (field === 'useExistingFolder') {
+        if (value) {
+          next.fileLocationPath = prev.existingFolderPath || next.fileLocationPath
+        } else {
+          const base = basePaths[prev.jobType]
+          const sanitized = (prev.jobName || '').replace(/[\\/:*?"<>|]/g, '-').toUpperCase() || 'UNNAMED'
+          next.fileLocationPath = prev.jobNumber ? `${base}\\${prev.jobNumber}-${sanitized}` : base
+        }
+      }
+      if (field === 'existingFolderPath' && prev.useExistingFolder) {
+        next.fileLocationPath = value as string
+      }
+      if ((field === 'jobNumber' || field === 'jobName') && !next.useExistingFolder) {
+        const base = basePaths[prev.jobType]
+        const num = field === 'jobNumber' ? value : prev.jobNumber
+        const name = field === 'jobName' ? value : prev.jobName
+        const nameStr = typeof name === 'string' ? name : ''
+        const sanitized = nameStr.replace(/[\\/:*?"<>|]/g, '-').toUpperCase() || 'UNNAMED'
+        const numStr = typeof num === 'string' ? num : ''
+        next.fileLocationPath = numStr ? `${base}\\${numStr}-${sanitized}` : base
+      }
+      return next
+    })
     if (errors[field]) {
       setErrors((prev) => ({ ...prev, [field]: '' }))
     }
@@ -79,6 +123,9 @@ export function JobFormDialog({ isOpen, onClose, onSave, job }: JobFormDialogPro
   const validate = () => {
     const newErrors: Record<string, string> = {}
 
+    if (!formData.jobType) {
+      newErrors.jobType = 'Job type is required'
+    }
     if (!formData.jobNumber.trim()) {
       newErrors.jobNumber = 'Job Number is required'
     }
@@ -87,9 +134,6 @@ export function JobFormDialog({ isOpen, onClose, onSave, job }: JobFormDialogPro
     }
     if (!formData.customerName.trim()) {
       newErrors.customerName = 'Customer Name is required'
-    }
-    if (!formData.jobLocation.trim()) {
-      newErrors.jobLocation = 'Job Location is required'
     }
     if (!formData.projectManager.trim()) {
       newErrors.projectManager = 'Project Manager is required'
@@ -111,6 +155,7 @@ export function JobFormDialog({ isOpen, onClose, onSave, job }: JobFormDialogPro
 
   const handleClose = () => {
     setFormData({
+      jobType: 'lindsay-precast',
       jobNumber: '',
       jobName: '',
       customerName: '',
@@ -119,7 +164,9 @@ export function JobFormDialog({ isOpen, onClose, onSave, job }: JobFormDialogPro
       status: 'active',
       dateStarted: new Date().toISOString().split('T')[0],
       description: '',
-      fileLocationPath: 'C:\\Users\\ojvie\\OneDrive - Lindsay Precast\\WORK FROM HOME',
+      fileLocationPath: basePaths['lindsay-precast'],
+      useExistingFolder: false,
+      existingFolderPath: '',
     })
     setErrors({})
     onClose()
@@ -137,18 +184,21 @@ export function JobFormDialog({ isOpen, onClose, onSave, job }: JobFormDialogPro
         <div className="grid gap-4 py-4">
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="jobNumber">
-                Job Number <span className="text-red-500">*</span>
-              </Label>
-              <Input
-                id="jobNumber"
-                value={formData.jobNumber}
-                onChange={(e) => handleChange('jobNumber', e.target.value)}
-                placeholder="e.g., LP-2024-001"
-                className={errors.jobNumber ? 'border-red-500' : ''}
-              />
-              {errors.jobNumber && (
-                <p className="text-xs text-red-500">{errors.jobNumber}</p>
+              <Label>Job Type <span className="text-red-500">*</span></Label>
+              <Select
+                value={formData.jobType}
+                onValueChange={(value) => handleChange('jobType', value)}
+              >
+                <SelectTrigger className={errors.jobType ? 'border-red-500' : ''}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="lindsay-precast">Lindsay Precast</SelectItem>
+                  <SelectItem value="lindsay-renewables">Lindsay Renewables</SelectItem>
+                </SelectContent>
+              </Select>
+              {errors.jobType && (
+                <p className="text-xs text-red-500">{errors.jobType}</p>
               )}
             </div>
 
@@ -169,6 +219,25 @@ export function JobFormDialog({ isOpen, onClose, onSave, job }: JobFormDialogPro
                 </SelectContent>
               </Select>
             </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="jobNumber">
+                Job Number <span className="text-red-500">*</span>
+              </Label>
+              <Input
+                id="jobNumber"
+                value={formData.jobNumber}
+                onChange={(e) => handleChange('jobNumber', e.target.value)}
+                placeholder="e.g., LP-2024-001"
+                className={errors.jobNumber ? 'border-red-500' : ''}
+              />
+              {errors.jobNumber && (
+                <p className="text-xs text-red-500">{errors.jobNumber}</p>
+              )}
+            </div>
+            <div />
           </div>
 
           <div className="space-y-2">
@@ -205,14 +274,12 @@ export function JobFormDialog({ isOpen, onClose, onSave, job }: JobFormDialogPro
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="jobLocation">
-                Job Location <span className="text-red-500">*</span>
-              </Label>
+              <Label htmlFor="jobLocation">Job Location</Label>
               <Input
                 id="jobLocation"
                 value={formData.jobLocation}
                 onChange={(e) => handleChange('jobLocation', e.target.value)}
-                placeholder="Enter location"
+                placeholder="Enter location (optional)"
                 className={errors.jobLocation ? 'border-red-500' : ''}
               />
               {errors.jobLocation && (
@@ -224,13 +291,32 @@ export function JobFormDialog({ isOpen, onClose, onSave, job }: JobFormDialogPro
               <Label htmlFor="projectManager">
                 Project Manager <span className="text-red-500">*</span>
               </Label>
-              <Input
-                id="projectManager"
+              <Select
                 value={formData.projectManager}
-                onChange={(e) => handleChange('projectManager', e.target.value)}
-                placeholder="Enter PM name"
-                className={errors.projectManager ? 'border-red-500' : ''}
-              />
+                onValueChange={(value) => handleChange('projectManager', value)}
+              >
+                <SelectTrigger className={errors.projectManager ? 'border-red-500' : ''}>
+                  <SelectValue placeholder={projectManagers.length === 0 ? 'Add project managers first' : 'Select project manager'} />
+                </SelectTrigger>
+                <SelectContent>
+                  {formData.projectManager &&
+                    !projectManagers.some((pm) => pm.name === formData.projectManager) && (
+                    <SelectItem value={formData.projectManager}>
+                      {formData.projectManager}
+                    </SelectItem>
+                  )}
+                  {projectManagers.map((pm) => (
+                    <SelectItem key={pm.id} value={pm.name}>
+                      {pm.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {projectManagers.length === 0 && (
+                <p className="text-xs text-muted-foreground">
+                  Add project managers via the Project Managers link in the header.
+                </p>
+              )}
               {errors.projectManager && (
                 <p className="text-xs text-red-500">{errors.projectManager}</p>
               )}
@@ -254,20 +340,53 @@ export function JobFormDialog({ isOpen, onClose, onSave, job }: JobFormDialogPro
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="fileLocationPath">File Location Path (Auto-Generated)</Label>
-            <Input
-              id="fileLocationPath"
-              value={formData.fileLocationPath}
-              readOnly
-              className="bg-muted cursor-not-allowed"
-            />
-            <p className="text-xs text-muted-foreground">
-              {formData.jobNumber && formData.jobName ? (
-                <>Folder will be: C:\Users\ojvie\Onelio - Lindsay Precast\WORK FROM HOME\{formData.jobNumber}-{formData.jobName.replace(/[\\/:*?"<>|]/g, '-').toUpperCase()}</>
-              ) : (
-                <>Enter Job Number and Job Name to see the folder path</>
-              )}
-            </p>
+            <Label htmlFor="fileLocationPath">Job folder</Label>
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="useExistingFolder"
+                checked={formData.useExistingFolder}
+                onChange={(e) => handleChange('useExistingFolder', e.target.checked)}
+                className="rounded border-input"
+              />
+              <Label htmlFor="useExistingFolder" className="font-normal cursor-pointer">
+                Use existing folder
+              </Label>
+            </div>
+            {formData.useExistingFolder ? (
+              <>
+                <Input
+                  id="existingFolderPath"
+                  value={formData.existingFolderPath || formData.fileLocationPath}
+                  onChange={(e) => {
+                    const v = e.target.value
+                    handleChange('existingFolderPath', v)
+                    handleChange('fileLocationPath', v)
+                  }}
+                  placeholder="e.g. C:\Users\...\WORK FROM HOME\25-1111-MY JOB"
+                  className="font-mono text-sm"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Enter the full path to the existing folder. The job will use this folder for files.
+                </p>
+              </>
+            ) : (
+              <>
+                <Input
+                  id="fileLocationPath"
+                  value={formData.fileLocationPath}
+                  readOnly
+                  className="bg-muted cursor-not-allowed font-mono text-sm"
+                />
+                <p className="text-xs text-muted-foreground">
+                  {formData.jobNumber && formData.jobName ? (
+                    <>New folder will be: {formData.fileLocationPath}</>
+                  ) : (
+                    <>Enter Job Number and Job Name to see the folder path</>
+                  )}
+                </p>
+              </>
+            )}
           </div>
 
           <div className="space-y-2">

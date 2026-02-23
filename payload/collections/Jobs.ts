@@ -4,9 +4,23 @@ export const Jobs: CollectionConfig = {
   slug: 'jobs',
   admin: {
     useAsTitle: 'jobName',
-    defaultColumns: ['jobNumber', 'jobName', 'customerName', 'status', 'dateStarted'],
+    defaultColumns: ['jobType', 'jobNumber', 'jobName', 'customerName', 'status', 'dateStarted'],
   },
   fields: [
+    {
+      name: 'jobType',
+      type: 'select',
+      required: true,
+      defaultValue: 'lindsay-precast',
+      index: true,
+      admin: {
+        description: 'Lindsay Precast or Lindsay Renewables',
+      },
+      options: [
+        { label: 'Lindsay Precast', value: 'lindsay-precast' },
+        { label: 'Lindsay Renewables', value: 'lindsay-renewables' },
+      ],
+    },
     {
       name: 'jobNumber',
       type: 'text',
@@ -31,7 +45,7 @@ export const Jobs: CollectionConfig = {
     {
       name: 'jobLocation',
       type: 'text',
-      required: true,
+      required: false,
     },
     {
       name: 'projectManager',

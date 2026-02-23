@@ -7,13 +7,18 @@ import { Label } from '@/components/ui/label'
 import {
   Folder,
   FileText,
-  Image,
+  Image as ImageIcon,
   Download,
   Upload,
   FolderPlus,
   File,
+  Pencil,
+  Trash2,
+  ChevronRight,
+  FolderUp,
 } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
+import { CustomPopup } from '@/components/custom-popup'
 
 interface FileItem {
   name: string
@@ -44,6 +49,13 @@ export function FileManager({ jobFolderPath, onUploadComplete }: FileManagerProp
   const [uploading, setUploading] = useState(false)
   const [isNewFolderOpen, setIsNewFolderOpen] = useState(false)
   const [newFolderName, setNewFolderName] = useState('')
+  const [renameTarget, setRenameTarget] = useState<{ path: string; name: string; type: 'file' | 'folder' } | null>(null)
+  const [renameValue, setRenameValue] = useState('')
+  const [deleteTarget, setDeleteTarget] = useState<{ path: string; name: string; type: 'file' | 'folder' } | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
+  const [uploadMessage, setUploadMessage] = useState<'success' | 'error' | null>(null)
+  const [folderUploadProgress, setFolderUploadProgress] = useState<{ current: number; total: number } | null>(null)
+  const [showUploadFolderConfirm, setShowUploadFolderConfirm] = useState(false)
 
   useEffect(() => {
     loadFiles()
@@ -74,6 +86,7 @@ export function FileManager({ jobFolderPath, onUploadComplete }: FileManagerProp
     if (!file) return
 
     setUploading(true)
+    setUploadMessage(null)
     try {
       const formData = new FormData()
       formData.append('file', file)
@@ -87,12 +100,78 @@ export function FileManager({ jobFolderPath, onUploadComplete }: FileManagerProp
       if (response.ok) {
         await loadFiles()
         onUploadComplete?.()
+        setUploadMessage('success')
+        setTimeout(() => setUploadMessage(null), 3000)
+      } else {
+        const data = await response.json().catch(() => ({}))
+        setActionError(data.error || data.details || 'Upload failed')
+        setUploadMessage('error')
       }
     } catch (error) {
       console.error('Error uploading file:', error)
+      setActionError('Failed to upload file')
+      setUploadMessage('error')
     } finally {
       setUploading(false)
       event.target.value = ''
+    }
+  }
+
+  const handleFolderUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const fileList = event.target.files
+    if (!fileList?.length) return
+
+    const fileArray = Array.from(fileList) as File[]
+    const total = fileArray.length
+    setUploading(true)
+    setUploadMessage(null)
+    setFolderUploadProgress({ current: 0, total })
+    setActionError(null)
+
+    let uploaded = 0
+    let lastError: string | null = null
+
+    for (let i = 0; i < fileArray.length; i++) {
+      const file = fileArray[i]
+      const relativePath = (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name
+      setFolderUploadProgress({ current: i + 1, total })
+
+      try {
+        const formData = new FormData()
+        formData.append('file', file)
+        formData.append('folderPath', currentPath)
+        formData.append('relativePath', relativePath.replace(/\\/g, '/'))
+
+        const response = await fetch('/api/upload-file', {
+          method: 'POST',
+          body: formData,
+        })
+
+        if (response.ok) {
+          uploaded++
+        } else {
+          const data = await response.json().catch(() => ({}))
+          lastError = data.error || data.details || 'Upload failed'
+        }
+      } catch {
+        lastError = 'Failed to upload file'
+      }
+    }
+
+    setUploading(false)
+    setFolderUploadProgress(null)
+    event.target.value = ''
+
+    if (uploaded > 0) {
+      await loadFiles()
+      onUploadComplete?.()
+    }
+    if (lastError) {
+      setActionError(uploaded > 0 ? `${lastError} (${uploaded}/${total} files uploaded)` : lastError)
+      setUploadMessage('error')
+    } else {
+      setUploadMessage('success')
+      setTimeout(() => setUploadMessage(null), 3000)
     }
   }
 
@@ -137,15 +216,84 @@ export function FileManager({ jobFolderPath, onUploadComplete }: FileManagerProp
         setNewFolderName('')
         setIsNewFolderOpen(false)
         await loadFiles()
+      } else {
+        const data = await response.json()
+        setActionError(data.error || data.message || 'Failed to create folder')
       }
     } catch (error) {
       console.error('Error creating folder:', error)
+      setActionError('Failed to create folder')
     }
+  }
+
+  const handleRename = async () => {
+    if (!renameTarget || !renameValue.trim()) return
+
+    setActionError(null)
+    try {
+      const response = await fetch('/api/rename-path', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: renameTarget.path, newName: renameValue.trim() }),
+      })
+      const data = await response.json()
+
+      if (response.ok) {
+        setRenameTarget(null)
+        setRenameValue('')
+        await loadFiles()
+      } else {
+        setActionError(data.error || 'Failed to rename')
+      }
+    } catch (error) {
+      console.error('Error renaming:', error)
+      setActionError('Failed to rename')
+    }
+  }
+
+  const handleDelete = async () => {
+    if (!deleteTarget) return
+
+    setActionError(null)
+    try {
+      const response = await fetch('/api/delete-path', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: deleteTarget.path, type: deleteTarget.type }),
+      })
+
+      if (response.ok) {
+        const wasViewingDeletedFolder = deleteTarget.type === 'folder' && currentPath === deleteTarget.path
+        setDeleteTarget(null)
+        if (wasViewingDeletedFolder) {
+          const parentPath = currentPath.split('\\').slice(0, -1).join('\\')
+          setCurrentPath(parentPath || jobFolderPath)
+        }
+        await loadFiles()
+      } else {
+        const data = await response.json()
+        setActionError(data.error || 'Failed to delete')
+      }
+    } catch (error) {
+      console.error('Error deleting:', error)
+      setActionError('Failed to delete')
+    }
+  }
+
+  const openRename = (item: { path: string; name: string }, type: 'file' | 'folder') => {
+    setRenameTarget({ ...item, type })
+    setRenameValue(item.name)
+    setActionError(null)
+  }
+
+  const openDelete = (item: { path: string; name: string }, type: 'file' | 'folder') => {
+    setDeleteTarget({ ...item, type })
+    setActionError(null)
   }
 
   const getFileIcon = (extension: string) => {
     if (['.jpg', '.jpeg', '.png', '.gif'].includes(extension)) {
-      return <Image className="h-5 w-5 text-blue-400" />
+      return <ImageIcon className="h-5 w-5 text-blue-400" />
     } else if (extension === '.pdf') {
       return <FileText className="h-5 w-5 text-red-400" />
     } else if (extension === '.dwg') {
@@ -160,12 +308,51 @@ export function FileManager({ jobFolderPath, onUploadComplete }: FileManagerProp
     return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
   }
 
+  // Job folder name (last segment of path) and breadcrumb from job root to current folder
+  const jobFolderName = jobFolderPath.split('\\').filter(Boolean).pop() || 'Job folder'
+  const relativePath = currentPath.replace(jobFolderPath.replace(/\\$/, ''), '').replace(/^\\+/, '')
+  const pathSegments = relativePath ? relativePath.split('\\') : []
+  const breadcrumb: { name: string; path: string }[] = [{ name: jobFolderName, path: jobFolderPath }]
+  for (let i = 0; i < pathSegments.length; i++) {
+    breadcrumb.push({
+      name: pathSegments[i],
+      path: pathSegments.slice(0, i + 1).reduce((acc, seg) => `${acc}\\${seg}`, jobFolderPath),
+    })
+  }
+  const currentFolderName = pathSegments.length > 0 ? pathSegments[pathSegments.length - 1] : jobFolderName
+
   return (
     <div className="space-y-4">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <Label className="text-sm text-muted-foreground">Files & Folders</Label>
-        <div className="flex gap-2">
+      {/* Folder tree / breadcrumb: job folder as root, then path to current */}
+      <div className="space-y-2">
+        <Label className="text-sm text-muted-foreground">Folder tree</Label>
+        <div className="flex flex-wrap items-center gap-1 text-sm bg-secondary/50 border border-border rounded-lg p-2">
+          {breadcrumb.map((seg, i) => (
+            <span key={seg.path} className="flex items-center gap-1">
+              {i > 0 && <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />}
+              <button
+                type="button"
+                onClick={() => setCurrentPath(seg.path)}
+                className={`font-medium truncate max-w-[180px] text-left hover:underline focus:outline-none focus:underline ${
+                  i === breadcrumb.length - 1 ? 'text-amber' : 'text-muted-foreground hover:text-foreground'
+                }`}
+                title={seg.path}
+              >
+                {seg.name}
+              </button>
+            </span>
+          ))}
+        </div>
+      </div>
+
+      {/* Header: actions */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <Label className="text-sm text-muted-foreground">
+          {currentPath === jobFolderPath
+            ? `Contents of job folder "${jobFolderName}"`
+            : `Contents of "${currentFolderName}"`}
+        </Label>
+        <div className="flex flex-wrap gap-2">
           <Button
             size="sm"
             variant="outline"
@@ -182,45 +369,118 @@ export function FileManager({ jobFolderPath, onUploadComplete }: FileManagerProp
             <Upload className="h-4 w-4 mr-1" />
             {uploading ? 'Uploading...' : 'Upload File'}
           </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setShowUploadFolderConfirm(true)}
+            disabled={uploading}
+          >
+            <FolderUp className="h-4 w-4 mr-1" />
+            {folderUploadProgress
+              ? `Uploading ${folderUploadProgress.current}/${folderUploadProgress.total}...`
+              : 'Upload Folder'}
+          </Button>
           <input
             id="file-upload"
             type="file"
             className="hidden"
             onChange={handleFileUpload}
-            accept=".pdf,.jpg,.jpeg,.png,.dwg,.dxf"
+            accept=".pdf,.jpg,.jpeg,.png,.dwg,.dxf,.xlsx,.xlsm,.bak"
+          />
+          <input
+            id="folder-upload"
+            type="file"
+            className="hidden"
+            {...({ webkitdirectory: '', directory: '', multiple: true } as React.InputHTMLAttributes<HTMLInputElement>)}
+            onChange={handleFolderUpload}
           />
         </div>
       </div>
 
-      {/* Current Path */}
-      <div className="text-xs text-muted-foreground bg-secondary/50 p-2 rounded border border-border font-mono break-all">
+      <CustomPopup
+        isOpen={showUploadFolderConfirm}
+        onClose={() => setShowUploadFolderConfirm(false)}
+        type="confirm"
+        title="Upload folder"
+        message="You'll choose a folder from your device. All files inside will be uploaded here, keeping the same folder structure. If your browser shows another confirmation for large folders, click Upload to continue."
+        confirmText="Choose folder"
+        cancelText="Cancel"
+        onConfirm={() => {
+          setShowUploadFolderConfirm(false)
+          document.getElementById('folder-upload')?.click()
+        }}
+      />
+
+      {uploadMessage === 'success' && (
+        <p className="text-sm text-green-500">
+          Upload complete. Files are in {currentPath}
+        </p>
+      )}
+      {uploadMessage === 'error' && actionError && (
+        <p className="text-sm text-destructive">{actionError}</p>
+      )}
+      {actionError && !uploadMessage && (
+        <p className="text-sm text-destructive">{actionError}</p>
+      )}
+
+      {/* Full path (for reference) */}
+      <div className="text-xs text-muted-foreground bg-secondary/30 p-2 rounded border border-border font-mono break-all">
         {currentPath}
       </div>
 
-      {/* File List */}
+      {/* File List - folders first (click to open and add content), then files */}
       <div className="border border-border rounded-lg overflow-hidden">
         {loading ? (
           <div className="p-4 text-center text-muted-foreground">Loading...</div>
         ) : folders.length === 0 && files.length === 0 ? (
           <div className="p-4 text-center text-muted-foreground">
-            No files or folders yet. Upload a file or create a folder to get started.
+            No files or folders yet. Create a folder or upload a file in this location.
           </div>
         ) : (
           <div className="divide-y divide-border">
-            {/* Folders */}
+            {/* Folders - click to open folder and add documents there */}
             {folders.map((folder) => (
               <div
                 key={folder.path}
-                className="flex items-center justify-between p-3 hover:bg-secondary/50 transition-colors cursor-pointer"
-                onClick={() => setCurrentPath(folder.path)}
+                className="flex items-center justify-between p-3 hover:bg-secondary/50 transition-colors group"
               >
-                <div className="flex items-center gap-3">
-                  <Folder className="h-5 w-5 text-amber" />
-                  <span className="font-medium">{folder.name}</span>
+                <div
+                  className="flex items-center gap-3 flex-1 min-w-0 cursor-pointer"
+                  onClick={() => setCurrentPath(folder.path)}
+                >
+                  <Folder className="h-5 w-5 text-amber shrink-0" />
+                  <span className="font-medium truncate">{folder.name}</span>
+                  <span className="text-xs text-muted-foreground shrink-0">(click to open)</span>
                 </div>
-                <span className="text-xs text-muted-foreground">
+                <span className="text-xs text-muted-foreground shrink-0 mr-2">
                   {new Date(folder.modified).toLocaleDateString()}
                 </span>
+                <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-8 w-8 p-0"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      openRename(folder, 'folder')
+                    }}
+                    title="Rename folder"
+                  >
+                    <Pencil className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-8 w-8 p-0 text-destructive hover:text-destructive"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      openDelete(folder, 'folder')
+                    }}
+                    title="Delete folder"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
               </div>
             ))}
 
@@ -228,7 +488,7 @@ export function FileManager({ jobFolderPath, onUploadComplete }: FileManagerProp
             {files.map((file) => (
               <div
                 key={file.path}
-                className="flex items-center justify-between p-3 hover:bg-secondary/50 transition-colors"
+                className="flex items-center justify-between p-3 hover:bg-secondary/50 transition-colors group"
               >
                 <div className="flex items-center gap-3 flex-1 min-w-0">
                   {getFileIcon(file.extension)}
@@ -239,13 +499,34 @@ export function FileManager({ jobFolderPath, onUploadComplete }: FileManagerProp
                     </div>
                   </div>
                 </div>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => handleDownload(file)}
-                >
-                  <Download className="h-4 w-4" />
-                </Button>
+                <div className="flex items-center gap-1 shrink-0">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => handleDownload(file)}
+                    title="Download"
+                  >
+                    <Download className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-8 w-8 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                    onClick={() => openRename(file, 'file')}
+                    title="Rename file"
+                  >
+                    <Pencil className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-8 w-8 p-0 text-destructive hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
+                    onClick={() => openDelete(file, 'file')}
+                    title="Delete file"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
               </div>
             ))}
           </div>
@@ -291,6 +572,94 @@ export function FileManager({ jobFolderPath, onUploadComplete }: FileManagerProp
               Cancel
             </Button>
             <Button onClick={handleCreateFolder}>Create Folder</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Rename Dialog */}
+      <Dialog
+        open={!!renameTarget}
+        onOpenChange={(open) => {
+          if (!open) {
+            setRenameTarget(null)
+            setRenameValue('')
+            setActionError(null)
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Rename {renameTarget?.type === 'folder' ? 'Folder' : 'File'}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            {actionError && (
+              <p className="text-sm text-destructive">{actionError}</p>
+            )}
+            <div className="space-y-2">
+              <Label htmlFor="renameValue">New name</Label>
+              <Input
+                id="renameValue"
+                value={renameValue}
+                onChange={(e) => setRenameValue(e.target.value)}
+                placeholder="Enter new name"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleRename()
+                }}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setRenameTarget(null)
+                setRenameValue('')
+                setActionError(null)
+              }}
+            >
+              Cancel
+            </Button>
+            <Button onClick={handleRename}>Rename</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog
+        open={!!deleteTarget}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDeleteTarget(null)
+            setActionError(null)
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete {deleteTarget?.type === 'folder' ? 'Folder' : 'File'}?</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            {actionError && (
+              <p className="text-sm text-destructive">{actionError}</p>
+            )}
+            <p className="text-sm text-muted-foreground">
+              Are you sure you want to delete <strong>{deleteTarget?.name}</strong>?
+              {deleteTarget?.type === 'folder' && ' This will remove all contents inside the folder.'}
+            </p>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setDeleteTarget(null)
+                setActionError(null)
+              }}
+            >
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={handleDelete}>
+              Delete
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

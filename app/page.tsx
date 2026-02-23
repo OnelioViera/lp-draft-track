@@ -2,8 +2,9 @@
 
 import { useState, useEffect } from 'react'
 import Image from 'next/image'
+import Link from 'next/link'
 import { Search, Plus, Filter, X } from 'lucide-react'
-import { Job, JobStats } from '@/lib/types'
+import { Job, JobStats, JobType } from '@/lib/types'
 import { StatsBar } from '@/components/stats-bar'
 import { JobTable } from '@/components/job-table'
 import { JobDetailPanel } from '@/components/job-detail-panel'
@@ -26,9 +27,12 @@ export default function Home() {
   const [isPanelOpen, setIsPanelOpen] = useState(false)
   const [isFormOpen, setIsFormOpen] = useState(false)
   const [editingJob, setEditingJob] = useState<Job | null>(null)
+  const [initialJobType, setInitialJobType] = useState<JobType>('lindsay-precast')
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [pmFilter, setPmFilter] = useState<string>('all')
+  const [jobTypeFilter, setJobTypeFilter] = useState<string>('all')
+  const [projectManagers, setProjectManagers] = useState<{ id: string; name: string }[]>([])
   const [stats, setStats] = useState<JobStats>({
     total: 0,
     active: 0,
@@ -53,6 +57,23 @@ export default function Home() {
     fetchJobs()
   }, [])
 
+  useEffect(() => {
+    fetch('/api/project-managers')
+      .then((res) => res.json())
+      .then((data) => setProjectManagers(data.docs || []))
+      .catch(() => setProjectManagers([]))
+  }, [])
+
+  // Refetch project managers when opening the job form so deleted PMs are removed from the dropdown
+  useEffect(() => {
+    if (isFormOpen) {
+      fetch('/api/project-managers')
+        .then((res) => res.json())
+        .then((data) => setProjectManagers(data.docs || []))
+        .catch(() => setProjectManagers([]))
+    }
+  }, [isFormOpen])
+
   const fetchJobs = async () => {
     try {
       const response = await fetch('/api/jobs')
@@ -60,6 +81,7 @@ export default function Home() {
       if (data.docs) {
         const formattedJobs: Job[] = data.docs.map((doc: any) => ({
           id: doc.id,
+          jobType: (doc.jobType || 'lindsay-precast') as JobType,
           jobNumber: doc.jobNumber,
           jobName: doc.jobName,
           customerName: doc.customerName,
@@ -111,8 +133,12 @@ export default function Home() {
       filtered = filtered.filter((job) => job.projectManager === pmFilter)
     }
 
+    if (jobTypeFilter !== 'all') {
+      filtered = filtered.filter((job) => job.jobType === jobTypeFilter)
+    }
+
     setFilteredJobs(filtered)
-  }, [jobs, searchQuery, statusFilter, pmFilter])
+  }, [jobs, searchQuery, statusFilter, pmFilter, jobTypeFilter])
 
   const handleJobClick = (job: Job) => {
     setSelectedJob(job)
@@ -124,8 +150,9 @@ export default function Home() {
     setTimeout(() => setSelectedJob(null), 300)
   }
 
-  const handleNewJob = () => {
+  const handleNewJob = (jobType?: JobType) => {
     setEditingJob(null)
+    setInitialJobType(jobType ?? 'lindsay-precast')
     setIsFormOpen(true)
   }
 
@@ -137,15 +164,24 @@ export default function Home() {
 
   const handleSaveJob = async (jobData: Partial<Job>) => {
     try {
-      // Generate job-specific folder path
-      const basePath = 'C:\\Users\\ojvie\\OneDrive - Lindsay Precast\\WORK FROM HOME'
+      const jobType = jobData.jobType || 'lindsay-precast'
+      const basePaths: Record<JobType, string> = {
+        'lindsay-precast':
+          process.env.NEXT_PUBLIC_JOB_FOLDER_BASE_PATH_LINDSAY_PRECAST ||
+          'C:\\Users\\ojvie\\OneDrive - Lindsay Precast\\WORK FROM HOME',
+        'lindsay-renewables':
+          process.env.NEXT_PUBLIC_JOB_FOLDER_BASE_PATH_LINDSAY_RENEWABLES ||
+          'C:\\Users\\ojvie\\OneDrive - Lindsay Renewables\\WORK FROM HOME',
+      }
+      const basePath = basePaths[jobType]
       const sanitizedJobName = jobData.jobName?.replace(/[\\/:*?"<>|]/g, '-').toUpperCase() || 'UNNAMED'
-      const jobFolderPath = `${basePath}\\${jobData.jobNumber}-${sanitizedJobName}`
+      const expectedAutoPath = `${basePath}\\${jobData.jobNumber}-${sanitizedJobName}`
+      const jobFolderPath = (jobData.fileLocationPath && jobData.fileLocationPath.trim()) || expectedAutoPath
+      const useExistingFolder = jobFolderPath !== expectedAutoPath
 
-      // Update jobData with the full folder path
       const updatedJobData = {
         ...jobData,
-        fileLocationPath: jobFolderPath
+        fileLocationPath: jobFolderPath,
       }
 
       if (editingJob) {
@@ -156,19 +192,31 @@ export default function Home() {
           body: JSON.stringify(updatedJobData),
         })
         if (response.ok) {
-          // Create the folder
-          await fetch('/api/create-folder', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ folderPath: jobFolderPath }),
-          })
+          let folderError: string | null = null
+          let folderData: { code?: string; parentPath?: string; details?: string; error?: string } | null = null
+          if (!useExistingFolder) {
+            const folderRes = await fetch('/api/create-folder', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ folderPath: jobFolderPath }),
+            })
+            folderData = folderRes.ok ? null : await folderRes.json().catch(() => ({}))
+            folderError = folderData?.error || folderData?.details || null
+          }
+          const isLocalOnly = folderData?.code === 'LOCAL_ONLY'
 
           await fetchJobs()
           setPopup({
             isOpen: true,
-            type: 'success',
-            title: 'Job Updated',
-            message: `Job "${jobData.jobName}" has been successfully updated and folder created at:\n${jobFolderPath}`,
+            type: folderError ? 'error' : 'success',
+            title: folderError ? 'Job updated, but folder creation failed' : 'Job Updated',
+            message: folderError
+              ? (isLocalOnly
+                ? `${folderData?.details || folderError}`
+                : `Job "${jobData.jobName}" was updated, but the folder could not be created.\n\n${folderError}${folderData?.parentPath ? `\n\nParent path checked: ${folderData.parentPath}\n\nIf this path is wrong, set NEXT_PUBLIC_JOB_FOLDER_BASE_PATH_LINDSAY_PRECAST in .env.local to your exact folder (copy from File Explorer address bar).` : ''}`)
+              : useExistingFolder
+                ? `Job "${jobData.jobName}" has been successfully updated (using existing folder).`
+                : `Job "${jobData.jobName}" has been successfully updated and folder created at:\n${jobFolderPath}`,
           })
         } else {
           throw new Error('Failed to update job')
@@ -181,19 +229,31 @@ export default function Home() {
           body: JSON.stringify(updatedJobData),
         })
         if (response.ok) {
-          // Create the folder
-          await fetch('/api/create-folder', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ folderPath: jobFolderPath }),
-          })
+          let folderError: string | null = null
+          let folderData: { code?: string; parentPath?: string; details?: string; error?: string } | null = null
+          if (!useExistingFolder) {
+            const folderRes = await fetch('/api/create-folder', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ folderPath: jobFolderPath }),
+            })
+            folderData = folderRes.ok ? null : await folderRes.json().catch(() => ({}))
+            folderError = folderData?.error || folderData?.details || null
+          }
+          const isLocalOnly = folderData?.code === 'LOCAL_ONLY'
 
           await fetchJobs()
           setPopup({
             isOpen: true,
-            type: 'success',
-            title: 'Job Created',
-            message: `Job "${jobData.jobName}" has been successfully created and folder created at:\n${jobFolderPath}`,
+            type: folderError ? 'error' : 'success',
+            title: folderError ? 'Job created, but folder creation failed' : 'Job Created',
+            message: folderError
+              ? (isLocalOnly
+                ? `${folderData?.details || folderError}`
+                : `Job "${jobData.jobName}" was created, but the folder could not be created.\n\n${folderError}${folderData?.parentPath ? `\n\nParent path checked: ${folderData.parentPath}\n\nIf this path is wrong, set NEXT_PUBLIC_JOB_FOLDER_BASE_PATH_LINDSAY_PRECAST in .env.local to your exact folder (copy from File Explorer address bar).` : ''}`)
+              : useExistingFolder
+                ? `Job "${jobData.jobName}" has been successfully created (using existing folder at:\n${jobFolderPath})`
+                : `Job "${jobData.jobName}" has been successfully created and folder created at:\n${jobFolderPath}`,
           })
         } else {
           throw new Error('Failed to create job')
@@ -245,19 +305,22 @@ export default function Home() {
   }
 
   const uniquePMs = Array.from(
-    new Set(
-      jobs
-        .map((job) => job.projectManager)
-        .filter((pm): pm is string => Boolean(pm && pm.trim()))
-    )
+    new Set([
+      ...projectManagers.map((pm) => pm.name),
+      ...jobs.map((job) => job.projectManager).filter((pm): pm is string => Boolean(pm && pm.trim())),
+    ])
   ).sort()
 
   const hasActiveFilters =
-    statusFilter !== 'all' || pmFilter !== 'all' || searchQuery.trim() !== ''
+    statusFilter !== 'all' ||
+    pmFilter !== 'all' ||
+    jobTypeFilter !== 'all' ||
+    searchQuery.trim() !== ''
 
   const clearFilters = () => {
     setStatusFilter('all')
     setPmFilter('all')
+    setJobTypeFilter('all')
     setSearchQuery('')
   }
 
@@ -277,6 +340,12 @@ export default function Home() {
               />
               <div className="h-8 w-px bg-border" />
               <h1 className="text-2xl font-bold text-amber">LP Draft Track</h1>
+              <Link
+                href="/project-managers"
+                className="text-sm text-muted-foreground hover:text-foreground underline"
+              >
+                Project Managers
+              </Link>
             </div>
           </div>
         </div>
@@ -331,6 +400,17 @@ export default function Home() {
               ))}
             </SelectContent>
           </Select>
+          <Select value={jobTypeFilter} onValueChange={setJobTypeFilter}>
+            <SelectTrigger className="w-full md:w-[200px]">
+              <Filter className="h-4 w-4 mr-2 shrink-0" />
+              <SelectValue placeholder="Filter by type" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All types</SelectItem>
+              <SelectItem value="lindsay-precast">Lindsay Precast</SelectItem>
+              <SelectItem value="lindsay-renewables">Lindsay Renewables</SelectItem>
+            </SelectContent>
+          </Select>
           {hasActiveFilters && (
             <Button
               variant="outline"
@@ -341,9 +421,9 @@ export default function Home() {
               Back to dashboard
             </Button>
           )}
-          <Button className="w-full md:w-auto" onClick={handleNewJob}>
+          <Button className="w-full md:w-auto" onClick={() => handleNewJob()}>
             <Plus className="h-4 w-4 mr-2" />
-            New Job
+            Create a new job
           </Button>
         </div>
 
@@ -370,6 +450,8 @@ export default function Home() {
         onClose={() => setIsFormOpen(false)}
         onSave={handleSaveJob}
         job={editingJob}
+        initialJobType={initialJobType}
+        projectManagers={projectManagers}
       />
 
       {/* Custom Popup */}

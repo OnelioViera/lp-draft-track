@@ -2,6 +2,15 @@ import { NextResponse } from 'next/server'
 import fs from 'fs'
 import path from 'path'
 
+function toServerPath(windowsPath: string): string {
+  if (process.platform === 'win32') return windowsPath
+  if (windowsPath.match(/^[A-Z]:\\/i)) {
+    const driveLetter = windowsPath[0].toLowerCase()
+    return windowsPath.replace(/^[A-Z]:\\/i, `/mnt/${driveLetter}/`).replace(/\\/g, '/')
+  }
+  return windowsPath.replace(/\\/g, '/')
+}
+
 export async function POST(request: Request) {
   try {
     const { folderPath, subfolderName } = await request.json()
@@ -13,25 +22,14 @@ export async function POST(request: Request) {
       )
     }
 
-    // Sanitize subfolder name
     const sanitizedName = subfolderName.replace(/[\\/:*?"<>|]/g, '-')
-
-    // Create full path
     const fullPath = path.join(folderPath, sanitizedName)
+    const serverPath = toServerPath(fullPath)
 
-    // Convert Windows path to WSL path
-    let wslPath = fullPath
-    if (fullPath.match(/^[A-Z]:\\/i)) {
-      const driveLetter = fullPath[0].toLowerCase()
-      wslPath = fullPath.replace(/^[A-Z]:\\/i, `/mnt/${driveLetter}/`)
-      wslPath = wslPath.replace(/\\/g, '/')
-    }
+    console.log('Creating subfolder:', serverPath)
 
-    console.log('Creating subfolder:', wslPath)
-
-    // Create the subfolder
-    if (!fs.existsSync(wslPath)) {
-      fs.mkdirSync(wslPath, { recursive: true })
+    if (!fs.existsSync(serverPath)) {
+      fs.mkdirSync(serverPath, { recursive: true })
       return NextResponse.json({
         success: true,
         message: 'Subfolder created successfully',
@@ -46,10 +44,11 @@ export async function POST(request: Request) {
         name: sanitizedName
       }, { status: 400 })
     }
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : String(error)
     console.error('Error creating subfolder:', error)
     return NextResponse.json(
-      { error: 'Failed to create subfolder', details: error.message },
+      { error: 'Failed to create subfolder', details: msg },
       { status: 500 }
     )
   }

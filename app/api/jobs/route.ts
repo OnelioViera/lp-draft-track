@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { getPayload } from 'payload'
 import config from '@/payload.config'
+import { sanitizeJobBody } from '@/lib/job-api'
 
 export async function GET() {
   try {
@@ -21,9 +22,10 @@ export async function POST(request: Request) {
   try {
     const payload = await getPayload({ config })
     const body = await request.json()
+    const data = sanitizeJobBody(body)
     const job = await payload.create({
       collection: 'jobs',
-      data: body,
+      data,
     })
     return NextResponse.json(job)
   } catch (error) {

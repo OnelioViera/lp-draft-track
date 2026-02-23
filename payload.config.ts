@@ -6,6 +6,7 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 import sharp from 'sharp'
 import { Jobs, Media } from './payload/collections/Jobs'
+import { ProjectManagers } from './payload/collections/ProjectManagers'
 import { Users } from './payload/collections/Users'
 
 const filename = fileURLToPath(import.meta.url)
@@ -18,7 +19,7 @@ export default buildConfig({
       baseDir: path.resolve(dirname),
     },
   },
-  collections: [Users, Jobs, Media],
+  collections: [Users, Jobs, ProjectManagers, Media],
   editor: lexicalEditor({}),
   secret: process.env.PAYLOAD_SECRET || '',
   typescript: {

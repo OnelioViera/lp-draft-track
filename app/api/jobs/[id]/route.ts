@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { getPayload } from 'payload'
 import config from '@/payload.config'
+import { sanitizeJobBody } from '@/lib/job-api'
 
 export async function GET(
   request: Request,
@@ -31,10 +32,11 @@ export async function PATCH(
     const { id } = await params
     const payload = await getPayload({ config })
     const body = await request.json()
+    const data = sanitizeJobBody(body)
     const job = await payload.update({
       collection: 'jobs',
       id,
-      data: body,
+      data,
     })
     return NextResponse.json(job)
   } catch (error) {

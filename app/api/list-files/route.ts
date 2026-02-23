@@ -2,6 +2,15 @@ import { NextResponse } from 'next/server'
 import fs from 'fs'
 import path from 'path'
 
+function toServerPath(windowsPath: string): string {
+  if (process.platform === 'win32') return windowsPath
+  if (windowsPath.match(/^[A-Z]:\\/i)) {
+    const driveLetter = windowsPath[0].toLowerCase()
+    return windowsPath.replace(/^[A-Z]:\\/i, `/mnt/${driveLetter}/`).replace(/\\/g, '/')
+  }
+  return windowsPath.replace(/\\/g, '/')
+}
+
 export async function POST(request: Request) {
   try {
     const { folderPath } = await request.json()
@@ -13,16 +22,9 @@ export async function POST(request: Request) {
       )
     }
 
-    // Convert Windows path to WSL path
-    let wslPath = folderPath
-    if (folderPath.match(/^[A-Z]:\\/i)) {
-      const driveLetter = folderPath[0].toLowerCase()
-      wslPath = folderPath.replace(/^[A-Z]:\\/i, `/mnt/${driveLetter}/`)
-      wslPath = wslPath.replace(/\\/g, '/')
-    }
+    const serverPath = toServerPath(folderPath)
 
-    // Check if folder exists
-    if (!fs.existsSync(wslPath)) {
+    if (!fs.existsSync(serverPath)) {
       return NextResponse.json({
         success: true,
         files: [],
@@ -31,19 +33,18 @@ export async function POST(request: Request) {
       })
     }
 
-    // Read directory contents
-    const items = fs.readdirSync(wslPath)
+    const items = fs.readdirSync(serverPath)
     const files: any[] = []
     const folders: any[] = []
 
     items.forEach(item => {
-      const itemPath = path.join(wslPath, item)
+      const itemPath = path.join(serverPath, item)
       const stats = fs.statSync(itemPath)
-
+      const windowsItemPath = path.join(folderPath, item).replace(/\//g, '\\')
       if (stats.isDirectory()) {
         folders.push({
           name: item,
-          path: path.join(folderPath, item),
+          path: windowsItemPath,
           type: 'folder',
           created: stats.birthtime,
           modified: stats.mtime,
@@ -51,7 +52,7 @@ export async function POST(request: Request) {
       } else {
         files.push({
           name: item,
-          path: path.join(folderPath, item),
+          path: windowsItemPath,
           type: 'file',
           size: stats.size,
           created: stats.birthtime,
@@ -66,12 +67,12 @@ export async function POST(request: Request) {
       files,
       folders,
       folderPath,
-      wslPath
     })
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : String(error)
     console.error('Error listing files:', error)
     return NextResponse.json(
-      { error: 'Failed to list files', details: error.message },
+      { error: 'Failed to list files', details: msg },
       { status: 500 }
     )
   }

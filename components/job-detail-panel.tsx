@@ -28,6 +28,11 @@ const statusLabels = {
   'on-hold': 'On Hold',
 }
 
+const jobTypeLabels: Record<string, string> = {
+  'lindsay-precast': 'Lindsay Precast',
+  'lindsay-renewables': 'Lindsay Renewables',
+}
+
 export function JobDetailPanel({
   job,
   isOpen,
@@ -86,20 +91,25 @@ export function JobDetailPanel({
           <div className="space-y-6">
             <div className="grid grid-cols-2 gap-4">
               <div>
+                <label className="text-sm text-muted-foreground">Job Type</label>
+                <p className="text-foreground font-medium mt-1">{jobTypeLabels[job.jobType] ?? job.jobType}</p>
+              </div>
+              <div>
                 <label className="text-sm text-muted-foreground">Customer Name</label>
                 <p className="text-foreground font-medium mt-1">{job.customerName}</p>
               </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="text-sm text-muted-foreground">Project Manager</label>
                 <p className="text-foreground font-medium mt-1">{job.projectManager}</p>
               </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="text-sm text-muted-foreground">Location</label>
-                <p className="text-foreground font-medium mt-1">{job.jobLocation}</p>
+                <p className="text-foreground font-medium mt-1">{job.jobLocation || 'N/A'}</p>
               </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="text-sm text-muted-foreground">Date Started</label>
                 <p className="text-foreground font-medium mt-1">

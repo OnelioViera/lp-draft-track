@@ -31,6 +31,11 @@ const statusLabels = {
   'on-hold': 'On Hold',
 }
 
+const jobTypeLabels: Record<string, string> = {
+  'lindsay-precast': 'Lindsay Precast',
+  'lindsay-renewables': 'Lindsay Renewables',
+}
+
 export function JobTable({ jobs, onJobClick, selectedJobId }: JobTableProps) {
   if (jobs.length === 0) {
     return (
@@ -45,6 +50,7 @@ export function JobTable({ jobs, onJobClick, selectedJobId }: JobTableProps) {
       <Table>
         <TableHeader>
           <TableRow className="bg-secondary/50 hover:bg-secondary/50">
+            <TableHead className="font-semibold text-amber">Type</TableHead>
             <TableHead className="font-semibold text-amber">Job Number</TableHead>
             <TableHead className="font-semibold text-amber">Job Name</TableHead>
             <TableHead className="font-semibold text-amber">Customer</TableHead>
@@ -64,10 +70,11 @@ export function JobTable({ jobs, onJobClick, selectedJobId }: JobTableProps) {
                 selectedJobId === job.id && 'bg-amber/10'
               )}
             >
+              <TableCell className="font-medium">{jobTypeLabels[job.jobType] ?? job.jobType}</TableCell>
               <TableCell className="font-medium">{job.jobNumber}</TableCell>
               <TableCell>{job.jobName}</TableCell>
               <TableCell>{job.customerName}</TableCell>
-              <TableCell>{job.jobLocation}</TableCell>
+              <TableCell>{job.jobLocation || 'N/A'}</TableCell>
               <TableCell>{job.projectManager}</TableCell>
               <TableCell>
                 <span

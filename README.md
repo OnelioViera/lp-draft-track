@@ -72,6 +72,15 @@ npm run dev
   ```
   This looks for Node in common install locations and starts the dev server.
 
+### Job folder not being created
+
+- **Run the app locally.** Folder creation only works when you run `npm run dev` on your Windows PC. It does not work on the deployed (Vercel) site because the server cannot access your computer’s drives.
+- **Use the exact path from File Explorer.** Open the folder where job folders should go (e.g. **WORK FROM HOME**), click the address bar, and copy the full path. In `.env.local` add (use your path exactly):
+  ```env
+  NEXT_PUBLIC_JOB_FOLDER_BASE_PATH_LINDSAY_PRECAST=C:\Users\ojvie\OneDrive - Lindsay Precast\WORK FROM HOME
+  ```
+  Restart the dev server after changing `.env.local`. If you see an error popup after creating a job, it will show the path that was tried so you can correct it.
+
 ## Admin Panel
 
 Access the Payload CMS admin panel at [http://localhost:3000/admin](http://localhost:3000/admin)

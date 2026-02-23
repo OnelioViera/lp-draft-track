@@ -2,6 +2,15 @@ import { NextResponse } from 'next/server'
 import fs from 'fs'
 import path from 'path'
 
+function toServerPath(windowsPath: string): string {
+  if (process.platform === 'win32') return windowsPath
+  if (windowsPath.match(/^[A-Z]:\\/i)) {
+    const driveLetter = windowsPath[0].toLowerCase()
+    return windowsPath.replace(/^[A-Z]:\\/i, `/mnt/${driveLetter}/`).replace(/\\/g, '/')
+  }
+  return windowsPath.replace(/\\/g, '/')
+}
+
 export async function POST(request: Request) {
   try {
     const formData = await request.formData()
@@ -22,41 +31,40 @@ export async function POST(request: Request) {
       )
     }
 
-    // Convert Windows path to WSL path
-    let wslPath = folderPath
-    if (folderPath.match(/^[A-Z]:\\/i)) {
-      const driveLetter = folderPath[0].toLowerCase()
-      wslPath = folderPath.replace(/^[A-Z]:\\/i, `/mnt/${driveLetter}/`)
-      wslPath = wslPath.replace(/\\/g, '/')
+    const serverPath = toServerPath(folderPath)
+
+    // Optional: path relative to folderPath (e.g. "CAD/plan.dwg") for folder uploads
+    const relativePath = (formData.get('relativePath') as string) || ''
+    const targetPath = relativePath
+      ? path.join(serverPath, relativePath.replace(/\//g, path.sep))
+      : path.join(serverPath, file.name)
+
+    const parentDir = path.dirname(targetPath)
+    if (!fs.existsSync(parentDir)) {
+      fs.mkdirSync(parentDir, { recursive: true })
     }
 
-    // Ensure the folder exists
-    if (!fs.existsSync(wslPath)) {
-      fs.mkdirSync(wslPath, { recursive: true })
-    }
-
-    // Get file buffer
     const bytes = await file.arrayBuffer()
     const buffer = Buffer.from(bytes)
 
-    // Create file path
-    const filePath = path.join(wslPath, file.name)
+    fs.writeFileSync(targetPath, buffer)
 
-    // Write file to disk
-    fs.writeFileSync(filePath, buffer)
+    console.log('File uploaded:', targetPath)
 
-    console.log('File uploaded:', filePath)
-
+    const reportedPath = relativePath
+      ? folderPath + '\\' + relativePath.replace(/\//g, '\\')
+      : folderPath + '\\' + file.name
     return NextResponse.json({
       success: true,
       message: 'File uploaded successfully',
       fileName: file.name,
-      filePath: folderPath + '\\' + file.name,
+      filePath: reportedPath,
     })
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : String(error)
     console.error('Error uploading file:', error)
     return NextResponse.json(
-      { error: 'Failed to upload file', details: error.message },
+      { error: 'Failed to upload file', details: msg },
       { status: 500 }
     )
   }
